@@ -1,0 +1,72 @@
+name: CredHunter-X LLM Pipeline
+
+on:
+  push:
+    branches:
+      - "**"
+
+  pull_request:
+    branches:
+      - "**"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+  actions: read
+
+jobs:
+  credhunter-x:
+    name: Scan with CredHunter-X
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout demo project
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run CredHunter-X LLM pipeline
+        uses: nipuni-udari/CredHunter-X@main
+        with:
+          scan_path: "."
+          config: ".credhunter.yml"
+          fail_on: high
+          enable_llm: "true"
+          llm_workflow: single
+          llm_rank: "true"
+          llm_explain: "true"
+          llm_remediate: "true"
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      - name: Debug generated reports
+        if: always()
+        run: |
+          echo "===== Current Directory ====="
+          pwd
+
+          echo "===== CredHunter Reports ====="
+          find . -type f | grep "credhunter-report" || true
+
+          echo "===== Root Directory Files ====="
+          ls -la
+
+      - name: Upload CredHunter-X reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: credhunter-x-reports
+          if-no-files-found: warn
+          path: |
+            credhunter-report.json
+            credhunter-report.sarif
+            credhunter-report.html
+
+      - name: Upload SARIF to GitHub Code Scanning
+        if: ${{ always() && hashFiles('credhunter-report.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: credhunter-report.sarif

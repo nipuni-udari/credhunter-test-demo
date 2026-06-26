@@ -1,0 +1,25 @@
+scan:
+  mode: full
+  fail_on: high
+  include_history: false
+
+filters:
+  ignore_paths:
+    - tests/**
+    - docs/**
+  allow_placeholders: true
+
+llm:
+  enabled: true
+  provider: openai
+  model: o4-mini
+  min_confidence: 0.7
+  workflow: single
+  rank: true
+  explain: true
+  remediate: true
+
+validation:
+  enabled: false
+  network_enabled: false
+  timeout_seconds: 5
