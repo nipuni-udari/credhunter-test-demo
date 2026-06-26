@@ -4,6 +4,7 @@ A minimal Python project for testing the [CredHunter-X](https://github.com/nipun
 
 ## Project Structure
 
+
 ```
 credhunter-test-demo/
 ├── .github/
