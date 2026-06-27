@@ -1,6 +1,14 @@
 name: GitLeaks Only Baseline
 
 on:
+  push:
+    branches:
+      - "**"
+
+  pull_request:
+    branches:
+      - "**"
+
   workflow_dispatch:
 
 permissions:
@@ -26,31 +34,39 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq
 
-          GITLEAKS_VERSION=$(curl -sSfL https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name)
-
           ASSET_URL=$(curl -sSfL https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
             | jq -r '.assets[] | select(.name | test("linux_x64\\.tar\\.gz$")) | .browser_download_url' \
             | head -n 1)
 
-          echo "Installing GitLeaks ${GITLEAKS_VERSION}"
-          echo "Asset URL: ${ASSET_URL}"
+          echo "Downloading GitLeaks from: ${ASSET_URL}"
 
           curl -sSfL "$ASSET_URL" -o gitleaks.tar.gz
           tar -xzf gitleaks.tar.gz
-
           sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
 
           gitleaks version
 
-      - name: Run GitLeaks only JSON
+      - name: Prepare GitLeaks config
+        run: |
+          if [ -f ".gitleaks.toml" ]; then
+            echo "Using custom .gitleaks.toml"
+            echo 'CONFIG_ARGS=--config .gitleaks.toml' >> "$GITHUB_ENV"
+          else
+            echo "No .gitleaks.toml found. Using GitLeaks default rules."
+            echo 'CONFIG_ARGS=' >> "$GITHUB_ENV"
+          fi
+
+          mkdir -p reports
+
+      - name: Run GitLeaks JSON
         id: gitleaks
         continue-on-error: true
         run: |
           gitleaks detect \
             --source "." \
-            --config ".gitleaks.toml" \
+            $CONFIG_ARGS \
             --report-format json \
-            --report-path gitleaks-report.json \
+            --report-path reports/gitleaks-report.json \
             --redact \
             --exit-code 1
 
@@ -60,9 +76,9 @@ jobs:
         run: |
           gitleaks detect \
             --source "." \
-            --config ".gitleaks.toml" \
+            $CONFIG_ARGS \
             --report-format sarif \
-            --report-path gitleaks-report.sarif \
+            --report-path reports/gitleaks-report.sarif \
             --redact \
             --exit-code 0
 
@@ -72,27 +88,27 @@ jobs:
         run: |
           gitleaks detect \
             --source "." \
-            --config ".gitleaks.toml" \
+            $CONFIG_ARGS \
             --report-format csv \
-            --report-path gitleaks-report.csv \
+            --report-path reports/gitleaks-report.csv \
             --redact \
             --exit-code 0
 
       - name: Debug GitLeaks reports
         if: always()
         run: |
-          echo "===== Current Directory ====="
-          pwd
+          echo "===== Root files ====="
+          ls -la
 
-          echo "===== GitLeaks Reports ====="
-          ls -la gitleaks-report.* || true
+          echo "===== Reports directory ====="
+          ls -la reports || true
 
-          echo "===== JSON Preview ====="
-          head -c 2000 gitleaks-report.json || true
+          echo "===== JSON preview ====="
+          head -c 2000 reports/gitleaks-report.json || true
           echo
 
-          echo "===== CSV Preview ====="
-          head -n 20 gitleaks-report.csv || true
+          echo "===== CSV preview ====="
+          head -n 20 reports/gitleaks-report.csv || true
 
       - name: Upload GitLeaks reports
         if: always()
@@ -101,20 +117,20 @@ jobs:
           name: gitleaks-only-reports
           if-no-files-found: warn
           path: |
-            gitleaks-report.json
-            gitleaks-report.sarif
-            gitleaks-report.csv
+            reports/gitleaks-report.json
+            reports/gitleaks-report.sarif
+            reports/gitleaks-report.csv
 
       - name: Upload GitLeaks SARIF to GitHub Code Scanning
-        if: ${{ always() && github.event_name != 'pull_request' && hashFiles('gitleaks-report.sarif') != '' }}
+        if: ${{ always() && github.event_name != 'pull_request' && hashFiles('reports/gitleaks-report.sarif') != '' }}
         continue-on-error: true
         uses: github/codeql-action/upload-sarif@v4
         with:
-          sarif_file: gitleaks-report.sarif
+          sarif_file: reports/gitleaks-report.sarif
 
       - name: Fail job if GitLeaks found secrets
         if: steps.gitleaks.outcome == 'failure'
         run: |
           echo "GitLeaks found secrets."
-          echo "JSON, SARIF, and CSV reports were generated and uploaded."
+          echo "Reports were generated and uploaded."
           exit 1
