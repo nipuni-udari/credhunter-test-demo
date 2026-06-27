@@ -1,14 +1,6 @@
 name: GitLeaks Only Baseline
 
 on:
-  push:
-    branches:
-      - "**"
-
-  pull_request:
-    branches:
-      - "**"
-
   workflow_dispatch:
 
 permissions:
@@ -29,10 +21,28 @@ jobs:
 
       - name: Install GitLeaks
         run: |
-          curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/scripts/install.sh | sh -s -- -b /usr/local/bin
+          set -euo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+          GITLEAKS_VERSION=$(curl -sSfL https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r .tag_name)
+
+          ASSET_URL=$(curl -sSfL https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
+            | jq -r '.assets[] | select(.name | test("linux_x64\\.tar\\.gz$")) | .browser_download_url' \
+            | head -n 1)
+
+          echo "Installing GitLeaks ${GITLEAKS_VERSION}"
+          echo "Asset URL: ${ASSET_URL}"
+
+          curl -sSfL "$ASSET_URL" -o gitleaks.tar.gz
+          tar -xzf gitleaks.tar.gz
+
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+
           gitleaks version
 
-      - name: Run GitLeaks only
+      - name: Run GitLeaks only JSON
         id: gitleaks
         continue-on-error: true
         run: |
@@ -56,15 +66,33 @@ jobs:
             --redact \
             --exit-code 0
 
+      - name: Generate GitLeaks CSV
+        if: always()
+        continue-on-error: true
+        run: |
+          gitleaks detect \
+            --source "." \
+            --config ".gitleaks.toml" \
+            --report-format csv \
+            --report-path gitleaks-report.csv \
+            --redact \
+            --exit-code 0
+
       - name: Debug GitLeaks reports
         if: always()
         run: |
+          echo "===== Current Directory ====="
+          pwd
+
           echo "===== GitLeaks Reports ====="
           ls -la gitleaks-report.* || true
 
-          echo "===== GitLeaks JSON preview ====="
+          echo "===== JSON Preview ====="
           head -c 2000 gitleaks-report.json || true
           echo
+
+          echo "===== CSV Preview ====="
+          head -n 20 gitleaks-report.csv || true
 
       - name: Upload GitLeaks reports
         if: always()
@@ -87,5 +115,6 @@ jobs:
       - name: Fail job if GitLeaks found secrets
         if: steps.gitleaks.outcome == 'failure'
         run: |
-          echo "GitLeaks found secrets. Reports were generated and uploaded."
+          echo "GitLeaks found secrets."
+          echo "JSON, SARIF, and CSV reports were generated and uploaded."
           exit 1
