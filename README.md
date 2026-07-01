@@ -51,3 +51,5 @@ while Medium and Low findings produce warnings only.
 Without `OPENAI_API_KEY` set, the deterministic engine is used as a fallback.
 With the key set, the LLM re-ranks each finding more precisely across all four
 severity levels (critical, high, medium, low).
+
+## Add your changes and commit
